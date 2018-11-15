@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS CloudFormation for creating S3 Bucket with Tags
+Parameters:
+  S3BucketName:
+    Description: >-
+      Enter the name of the bucket.(NAME can only be lower case or numbers).
+    Type: String
+    Default: entername
+    AllowedPattern: '[a-z0-9]+'
+Resources:
+  S3Bucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+  S3BucketPolicyWithEncryption:
+    Type: 'AWS::S3::BucketPolicy'
+    DependsOn: S3Bucket
+    Properties:
+      Bucket: !Ref S3BucketName
+      PolicyDocument:
+        Statement:
+          - Sid: EncryptBucket
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref S3BucketName
+                - /*
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': AES256
+          - Sid: DenyUnEncryptedObjectUploads
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref S3BucketName
+                - /*
+            Condition:
+              'Null':
+                's3:x-amz-server-side-encryption': 'true'
+          - Sid: IPAllow
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:*'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref S3BucketName
+                - /*
+            Condition:
+              IpAddress:
+                'aws:SourceIp':
+                  - 10.127.128.0/24
+                  - 10.127.129.0/24
+
