@@ -6,7 +6,6 @@ Parameters:
       Enter the name of the bucket.(NAME can only be lower case or numbers).
     Type: String
     Default: entername
-    AllowedPattern: '[a-z0-9]+'
 Resources:
   S3Bucket:
     Type: 'AWS::S3::Bucket'
