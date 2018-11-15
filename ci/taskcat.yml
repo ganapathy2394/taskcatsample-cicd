@@ -1,5 +1,6 @@
 ---
 global:
+  package-lambda: true
   owner: gana.pullera007@gmail.com
   qsname: taskcatsample-cicd
   regions:
