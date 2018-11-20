@@ -1,0 +1,458 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  AWS CloudFormation template creates an IAM Roles for Montypatch application
+  with ReadOnlyAccess, permissions to convert ec2 to managed instance, assume
+  role permissions for SSM automation role. 
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Account Settings
+        Parameters:
+           - ExternalId
+      - Label:
+          default: Profile Settings
+        Parameters:
+          - ManagedInstanceProfileName
+      - Label:
+          default: Storage Settings
+        Parameters:
+          - InventoryS3BucketName 
+      - Label:
+          default: Nested Stack URL's
+        Parameters:
+          - StackCreationLambdaURL
+          - CleanUpStackURL
+          - AutotaggingSNSStackURL 
+          - LambdaSSMDocCreationStackURL
+      - Label:
+          default: Tagging EC2 Instance
+        Parameters:
+          - MontyCloudTagId
+          - MontyCloudInventoryId     
+      - Label:
+          default: Lambda Function Settings
+        Parameters:
+          - MontyCloudS3bucketSSMLambdaFunction
+          - MontyCloudS3bucketKeySSMLambdaFunction                                    
+Parameters:
+  MontyCloudTagId:
+    Type: String
+    # NoEcho: 'True'
+  MontyCloudInventoryId:
+    Type: String 
+    # NoEcho: 'True'  
+  ManagedInstanceProfileName:
+    Description: Enter a the name for the Managed Instance Profile.
+    Type: String
+    Default: MontyCloud-ManagedInstanceProfile
+  ExternalId:
+    Type: String
+    # NoEcho: 'True'
+  InventoryS3BucketName:
+    Description: Enter the Bucket Name for the Inventory data sync 
+    Type: String
+    Default: montycloud-inventorybucketdatasync
+  SNShttpsEndpoint:
+    Description: Enter a valid https endpoint for the topic subscription.
+    Type: String
+    NoEcho: 'True'
+    Default: >-
+      https://o4jwtn763m.execute-api.us-east-2.amazonaws.com/v1/mc/sns-notification 
+  StackCreationLambdaURL:
+    Type: 'String'
+    # NoEcho: 'True'
+    Description: Enter the Stack creation lambda template URL
+    Default: 'https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-StackCreationLambda.yaml'
+  CleanUpStackURL:
+    Type: 'String'
+    # NoEcho: 'True'
+    Default: 'https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-CleanUpFunction.yaml'
+    Description: Enter the Clean Up stack template URL
+  LambdaSSMDocCreationStackURL: 
+    Type: 'String'
+    # NoEcho: 'True'
+    Default: 'https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-LambdaFunction-SSMDocumentCreation.yaml'
+    Description: Enter the Lambda SSM document creation in all regions template URL    
+  AutotaggingSNSStackURL:
+    Type: 'String'
+    # NoEcho: 'True'
+    Default: 'https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-AutoTaggingSNStopicStack.yaml'
+    Description: Enter the Autotagging and SNS topic Stack Creation template URL
+  MontyCloudS3bucketSSMLambdaFunction:
+    Type: String 
+    # NoEcho: 'True'
+    Description: Enter the bucket name for the lambda function code  
+    Default: 'mc-stg1-snapshot-and-patch'      
+  MontyCloudS3bucketKeySSMLambdaFunction:   
+    Type: String 
+    # NoEcho: 'True' 
+    Description: Enter the bucket key for the lambda function code.
+    Default: 'CreateDocument_SnapshotPatch.zip'     
+Resources:
+  S3BucketInventoryData:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Join
+          - '-'
+          - - !Ref InventoryS3BucketName
+            - !Ref 'AWS::AccountId'
+  BucketBackupPolicy:
+    DependsOn: 
+      - MontyCloudApplicationRole
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3BucketInventoryData
+      PolicyDocument:
+        Statement:
+          - Sid: 'SSMBucketPermissionsCheck'
+            Principal:
+              Service: 'ssm.amazonaws.com'
+            Action:
+              - 's3:GetBucketAcl'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref S3BucketInventoryData
+          - Sid: 'SSMBucketDelivery'
+            Principal:
+              Service: 'ssm.amazonaws.com'
+            Action:
+              - 's3:PutObject'
+            Effect: Allow
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref S3BucketInventoryData
+                  - /*/
+                  - 'accountid='
+                  - !Ref 'AWS::AccountId'
+                  - /*
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+          - Sid: BucketListlocationpolicy
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt MontyCloudApplicationRole.Arn
+            Action: 's3:ListBucket'
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref S3BucketInventoryData            
+          - Sid: BucketGetlocationpolicy
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt MontyCloudApplicationRole.Arn
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - !Join 
+                - ''
+                - - 'arn:aws:s3:::'
+                  - !Ref S3BucketInventoryData
+                  - '/*'                           
+  MontyCloudMaintenanceWindowRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: MontyCloud-MaintenanceWindowRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+                - ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonSSMMaintenanceWindowRole'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+      Path: /    
+  MontyCloudRuncommandSNSRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: MontyCloud-RuncommandSNSRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+                - lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSNSFullAccess'
+        - 'arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole'
+      Path: /                          
+  MontyCloudManagedInstanceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: MontyCloud-ManagedInstanceRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+                - ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM'
+      Path: /
+  MontyCloudManagedInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Path: /
+      Roles:
+        - !Ref MontyCloudManagedInstanceRole
+      InstanceProfileName: !Ref ManagedInstanceProfileName
+  MontyCloudSSMAutomationServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+                - ec2.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole'
+      Path: /
+      RoleName: MontyCloud-SSMAutomationServiceRole
+      Policies:
+        - PolicyName: SSMAutomationServicePassrole
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource:
+                  - !GetAtt MontyCloudManagedInstanceRole.Arn
+  MontyCloudApplicationRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/ReadOnlyAccess'
+        - 'arn:aws:iam::aws:policy/AWSLambdaFullAccess'
+        - 'arn:aws:iam::aws:policy/AmazonEC2FullAccess'
+      RoleName: MontyCloud-ApplicationRole
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS:
+                - 'arn:aws:iam::748532287425:root'
+              Service:
+                - ssm.amazonaws.com
+                - ec2.amazonaws.com
+                - lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      Policies:
+        - PolicyName: TrustPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                  - 'sts:AssumeRole'
+                Resource:
+                  - !GetAtt MontyCloudSSMAutomationServiceRole.Arn
+                  - !GetAtt MontyCloudMaintenanceWindowRole.Arn                    
+  MontyCloudEC2SSMAccessPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'
+    Properties:
+      ManagedPolicyName: MontyCloud-EC2SSMAccessPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'cloudformation:CreateStack'
+              - 'cloudformation:DeleteStack'
+              - 'cloudformation:GetTemplate'
+              - 'cloudformation:ValidateTemplate'
+              - 'cloudformation:GetTemplateSummary'
+              - 'cloudformation:Describe*'
+              - 'iam:CreateInstanceProfile'
+              - 'iam:UpdateAssumeRolePolicy'
+              - 'iam:RemoveRoleFromInstanceProfile'
+              - 'iam:DeletePolicy'
+              - 'iam:CreateRole'
+              - 'iam:AttachRolePolicy'
+              - 'iam:PutRolePolicy'
+              - 'iam:DeleteRolePermissionsBoundary'
+              - 'iam:AddRoleToInstanceProfile'
+              - 'iam:PassRole'
+              - 'iam:DetachRolePolicy'
+              - 'iam:DeleteRolePolicy'
+              - 'iam:DeleteInstanceProfile'
+              - 'iam:DeleteRole'
+              - 'iam:CreatePolicy'
+              - 'iam:UpdateRole'
+              - 'iam:SetDefaultPolicyVersion'
+              - 's3:List*'
+              - 's3:Get*'
+            Resource: '*'
+          - Effect: Allow
+            Action: 
+              - 'ssm:*' 
+            Resource: '*'                           
+      Roles:
+        - !Ref MontyCloudApplicationRole
+  MontyCloudLambdaAutoTaggingRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: LambdaGetLatestWindowsAmiIdPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: Stmt1458923097000
+                Effect: Allow
+                Action:
+                  - 'cloudtrail:LookupEvents'
+                Resource:
+                  - '*'
+              - Sid: Stmt1458923121000
+                Effect: Allow
+                Action:
+                  - 'ec2:CreateTags'
+                  - 'ec2:Describe*'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - '*'
+              - Sid: LaunchEC2Instances
+                Effect: Allow
+                Action:
+                  - 'ec2:Describe*'
+                  - 'ec2:RunInstances'
+                Resource:
+                  - '*'
+              - Sid: AllowActionsIfYouAreTheOwner
+                Effect: Allow
+                Action:
+                  - 'ec2:StopInstances'
+                  - 'ec2:StartInstances'
+                  - 'ec2:RebootInstances'
+                  - 'ec2:TerminateInstances' 
+                Resource:
+                  - '*'                          
+      RoleName: MontyCloud-AutoTaggingLambdaExecutionRole 
+  MontyCloudSSMLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole' 
+      Policies:
+        - PolicyName: LambdaCreateSnapshotPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Sid: Stmt1458923097000
+                Effect: Allow
+                Action:
+                  - 'ec2:CreateTags'                  
+                  - 'ec2:Describe*'
+                  - 'ec2:CopySnapshot'
+                  - 'ec2:CreateSnapshot'
+                  - 'ec2:CreateVolume'
+                  - 'ec2:RunInstances'
+                Resource:
+                  - '*'              
+      ManagedPolicyArns: 
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'           
+      RoleName: MontyCloud-SSM-LambdaExecutionRole                 
+  MontyCloudRegionwiseStackCreationLambda:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - MontyCloudLambdaAutoTaggingRole
+      - MontyCloudSSMLambdaExecutionRole
+    Properties:
+      TemplateURL: !Ref StackCreationLambdaURL 
+      TimeoutInMinutes: '10'
+      Parameters:
+        LambdaSSMDocCreationStackURL: !Ref LambdaSSMDocCreationStackURL
+        SNShttpsEndpoint: !Ref SNShttpsEndpoint 
+        AutotaggingSNSStackURL: !Ref AutotaggingSNSStackURL
+        MontyCloudTagId: !Ref MontyCloudTagId
+        MontyCloudInventoryId: !Ref MontyCloudInventoryId 
+        MontyCloudS3bucketSSMLambdaFunction: !Ref MontyCloudS3bucketSSMLambdaFunction
+        MontyCloudS3bucketKeySSMLambdaFunction: !Ref MontyCloudS3bucketKeySSMLambdaFunction               
+  MontyCloudTempstackCleanUp:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - MontyCloudRegionwiseStackCreationLambda
+    Properties: 
+      TemplateURL: !Ref CleanUpStackURL 
+      TimeoutInMinutes: '15'
+      Parameters:
+        StackCreationStackName: !GetAtt MontyCloudRegionwiseStackCreationLambda.Outputs.StackCreationStackName
+Outputs:
+  InventoryS3BucketName:
+    Value: !Ref S3BucketInventoryData
+    Description: S3 Bucket for Inventory data sync   
+  MontyCloudApplicationRoleArn:
+    Value: !GetAtt 
+      - MontyCloudApplicationRole
+      - Arn
+    Description: >-
+      MontyCloud role ARN in Customer Account with pass and assume role for
+      MontyCloudSSMAutomationServiceRole
+  MontyCloudMaintenanceWindowRoleName:
+    Value: !Ref MontyCloudMaintenanceWindowRole
+    Description: SSM Maintenance Window Role ARN in Customer Account
+  MontyCloudRuncommandSNSRoleName:
+    Value: !Ref MontyCloudRuncommandSNSRole
+    Description: SSM Run Command Role for SNS.    
+  MontyCloudSSMAutomationServiceRoleName:
+    Value: !Ref MontyCloudSSMAutomationServiceRole
+    Description: SSM Automation role ARN in Customer Account    
+  MontyCloudManagedInstanceRoleName:
+    Value: !Ref MontyCloudManagedInstanceRole
+    Description: Role for Managed instance
+  MontyCloudManagedInstanceProfileName:
+    Value: !Ref MontyCloudManagedInstanceProfile
+    Description: Managed instance profile with  MontyCloudManagedInstanceRole
+  MontyCloudLambdaAutoTaggingRoleArn:
+    Value: !GetAtt 
+      - MontyCloudLambdaAutoTaggingRole
+      - Arn
+  MontyCloudSSMLambdaExecutionRoleArn:
+    Value: !GetAtt 
+      - MontyCloudSSMLambdaExecutionRole
+      - Arn

@@ -1,0 +1,50 @@
+[
+    {
+        "ParameterKey": "ExternalId",
+        "ParameterValue": "123-456-678-234-089-333"
+    },
+    {
+        "ParameterKey": "ManagedInstanceProfileName",
+        "ParameterValue": "MontyCloud-ManagedInstanceProfile"
+    },
+    {
+        "ParameterKey": "InventoryS3BucketName",
+        "ParameterValue": "montycloud-inventorybucketdatasync"
+    },
+    {
+        "ParameterKey": "StackCreationLambdaURL",
+        "ParameterValue": "https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-StackCreationLambda.yaml"
+    },
+    {
+        "ParameterKey": "CleanUpStackURL",
+        "ParameterValue": "https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-CleanUpFunction.yaml"
+    },
+    {
+        "ParameterKey": "AutotaggingSNSStackURL",
+        "ParameterValue": "https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-AutoTaggingSNStopicStack.yaml"
+    },
+    {
+        "ParameterKey": "LambdaSSMDocCreationStackURL",
+        "ParameterValue": "https://s3.us-east-2.amazonaws.com/mcstg1customeronboarding/MontyCloud-LambdaFunction-SSMDocumentCreation.yaml"
+    },
+    {
+        "ParameterKey": "MontyCloudTagId",
+        "ParameterValue": "MC-Test123"
+    },
+    {
+        "ParameterKey": "MontyCloudInventoryId",
+        "ParameterValue": "MC-Inventory345"
+    },
+    {
+        "ParameterKey": "MontyCloudS3bucketSSMLambdaFunction",
+        "ParameterValue": "mc-stg1-snapshot-and-patch"
+    },
+    {
+        "ParameterKey": "MontyCloudS3bucketKeySSMLambdaFunction",
+        "ParameterValue": "CreateDocument_SnapshotPatch.zip"
+    },    
+    {
+        "ParameterKey": "SNShttpsEndpoint",
+        "ParameterValue": "https://o4jwtn763m.execute-api.us-east-2.amazonaws.com/v1/mc/sns-notification"
+    }    
+]
